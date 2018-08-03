@@ -35,19 +35,14 @@ class ApiClient(object):
         '''
 
         # Setup encryption for request/responses.
-        self.isEncrypted = False
-        if encryptionData and 'clientPrivateKeySetLocation' in encryptionData and 'hyperwalletKeySetLocation' in encryptionData:
-            self.isEncrypted = True
-            self.encryption = Encryption(encryptionData['clientPrivateKeySetLocation'], encryptionData['hyperwalletKeySetLocation'])
-
-        print self.isEncrypted
+        self.encryption = Encryption(**encryptionData) if encryptionData is not None else None
 
         # Base headers and the custom User-Agent to identify this client as the
         # Hyperwallet SDK.
         self.baseHeaders = {
             'User-Agent': 'Hyperwallet Python SDK v{}'.format(__version__),
             'Accept': 'application/json',
-            'Content-Type': 'application/jose+json' if self.isEncrypted else 'application/json'
+            'Content-Type': 'application/jose+json' if self.encrypted else 'application/json'
         }
 
         self.username = username
@@ -64,6 +59,10 @@ class ApiClient(object):
         defaultSession.headers = self.baseHeaders
 
         self.session = defaultSession
+
+    @property
+    def encrypted(self):
+        return self.encryption is not None
 
     def _makeRequest(self,
                      method=None,
@@ -95,7 +94,7 @@ class ApiClient(object):
             response = self.session.request(
                 method=method,
                 url=urljoin(self.baseUrl, url),
-                data=(data if data is None else self.encryption.encrypt(data)) if self.isEncrypted else data,
+                data=(data if data is None else self.encryption.encrypt(data)) if self.encrypted else data,
                 headers=headers,
                 params=params
             )
@@ -118,7 +117,7 @@ class ApiClient(object):
         if hasattr(content, 'decode'):  # Python 2
             content = content.decode('utf-8')
 
-        content = self.encryption.decrypt(content) if self.isEncrypted else content
+        content = self.encryption.decrypt(content) if self.encrypted else content
 
         try:
             json_body = json.loads(content)

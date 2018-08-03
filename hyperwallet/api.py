@@ -39,7 +39,7 @@ class Api(object):
     :param server:
         Your UAT or Production API URL if applicable.
     :param encryptionData:
-        Array with params for encrypted requests(Fields: clientPrivateKeySetLocation, hyperwalletKeySetLocation).
+        Dictionary with params for encrypted requests (keys: clientPrivateKeySetLocation, hyperwalletKeySetLocation, etc).
 
     .. note::
         **server** defaults to the Hyperwallet Sandbox URL if not provided.

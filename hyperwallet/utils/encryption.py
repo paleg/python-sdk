@@ -4,6 +4,7 @@ import os
 import json
 import requests
 import time
+import sys
 
 from jwcrypto import jwk, jws as cryptoJWS, jwe
 from jwcrypto.common import json_encode, json_decode
@@ -33,8 +34,10 @@ class Encryption(object):
         Time in minutes when JWS signature is valid after creation.
     '''
 
-    def __init__(self, clientPrivateKeySetLocation, hyperwalletKeySetLocation, encryptionAlgorithm='RSA-OAEP-256',
-            signAlgorithm='RS256', encryptionMethod='A256CBC-HS512', jwsExpirationMinutes=5):
+    def __init__(self,
+                 clientPrivateKeySetLocation, hyperwalletKeySetLocation,
+                 encryptionAlgorithm='RSA-OAEP-256', signAlgorithm='RS256', encryptionMethod='A256CBC-HS512',
+                 jwsExpirationMinutes=5):
         '''
         Encryption service for hyperwallet client
         '''
@@ -45,8 +48,9 @@ class Encryption(object):
         self.signAlgorithm = signAlgorithm
         self.encryptionMethod = encryptionMethod
         self.jwsExpirationMinutes = jwsExpirationMinutes
+        self.integer_types = (int, long,) if sys.version_info < (3,) else (int,)
 
-    def encrypt(self, body=None):
+    def encrypt(self, body):
         '''
         :param body:
             Body message to be 1) signed and 2) encrypted. **REQUIRED**
@@ -54,8 +58,8 @@ class Encryption(object):
             String as a result of signature and encryption of input message body
         '''
 
-        jwsKeySet = self.__getJwkKeySet(location = self.clientPrivateKeySetLocation)
-        jwkSignKey = self.__findJwkKeyByAlgorithm(jwkKeySet = jwsKeySet, algorithm  = self.signAlgorithm)
+        jwsKeySet = self.__getJwkKeySet(location=self.clientPrivateKeySetLocation)
+        jwkSignKey = self.__findJwkKeyByAlgorithm(jwkKeySet=jwsKeySet, algorithm=self.signAlgorithm)
         privateKeyToSign = jwk.JWK(**jwkSignKey)
         jwsToken = cryptoJWS.JWS(body.encode('utf-8'))
         jwsToken.add_signature(privateKeyToSign, None, json_encode({
@@ -65,8 +69,8 @@ class Encryption(object):
         }))
         signedBody = jwsToken.serialize(True)
 
-        jweKeySet = self.__getJwkKeySet(location = self.hyperwalletKeySetLocation)
-        jwkEncryptKey = self.__findJwkKeyByAlgorithm(jwkKeySet = jweKeySet, algorithm  = self.encryptionAlgorithm)
+        jweKeySet = self.__getJwkKeySet(location=self.hyperwalletKeySetLocation)
+        jwkEncryptKey = self.__findJwkKeyByAlgorithm(jwkKeySet=jweKeySet, algorithm=self.encryptionAlgorithm)
         publicKeyToEncrypt = jwk.JWK(**jwkEncryptKey)
         protected_header = {
             "alg": self.encryptionAlgorithm,
@@ -77,7 +81,7 @@ class Encryption(object):
         jweToken = jwe.JWE(signedBody.encode('utf-8'), recipient=publicKeyToEncrypt, protected=protected_header)
         return jweToken.serialize(True)
 
-    def decrypt(self, body=None):
+    def decrypt(self, body):
         '''
         :param body:
             Body message to be 1) decrypted and 2) check for correct signature. **REQUIRED**
@@ -85,16 +89,16 @@ class Encryption(object):
             Decrypted body message
         '''
 
-        jweKeySet = self.__getJwkKeySet(location = self.clientPrivateKeySetLocation)
-        jwkDecryptKey = self.__findJwkKeyByAlgorithm(jwkKeySet = jweKeySet, algorithm  = self.encryptionAlgorithm)
+        jweKeySet = self.__getJwkKeySet(location=self.clientPrivateKeySetLocation)
+        jwkDecryptKey = self.__findJwkKeyByAlgorithm(jwkKeySet=jweKeySet, algorithm=self.encryptionAlgorithm)
         privateKeyToDecrypt = jwk.JWK(**jwkDecryptKey)
         jweToken = jwe.JWE()
         jweToken.deserialize(body, key=privateKeyToDecrypt)
         payload = jweToken.payload
 
         self.__checkJwsExpiration(payload)
-        jwsKeySet = self.__getJwkKeySet(location = self.hyperwalletKeySetLocation)
-        jwkCheckSignKey = self.__findJwkKeyByAlgorithm(jwkKeySet = jwsKeySet, algorithm  = self.signAlgorithm)
+        jwsKeySet = self.__getJwkKeySet(location=self.hyperwalletKeySetLocation)
+        jwkCheckSignKey = self.__findJwkKeyByAlgorithm(jwkKeySet=jwsKeySet, algorithm=self.signAlgorithm)
         return jws.verify(payload, json.dumps(jwkCheckSignKey), algorithms=self.signAlgorithm)
 
     def __getJwkKeySet(self, location):
@@ -109,7 +113,7 @@ class Encryption(object):
 
         try:
             URLValidator()(location)
-        except ValidationError, e:
+        except ValidationError:
             if os.path.isfile(location):
                 with open(location) as f:
                     return f.read()
@@ -132,7 +136,7 @@ class Encryption(object):
 
         try:
             keySet = json.loads(jwkKeySet)
-        except ValueError as e:
+        except ValueError:
             raise HyperwalletException('Wrong JWK key set' + jwkKeySet)
 
         for key in keySet['keys']:
@@ -143,14 +147,14 @@ class Encryption(object):
 
     def __getJwsExpirationTime(self):
         '''
-        Calculates the expiration time(in seconds) of JWS signature.
+        Calculates the expiration time (in seconds) of JWS signature.
 
         :returns:
             JWS expiration time in seconds since the UNIX epoch (January 1, 1970 00:00:00 UTC).
         '''
 
         secondsInMinute = 60
-        return int(time.time()) + (self.jwsExpirationMinutes * secondsInMinute)
+        return int(time.time() + self.jwsExpirationMinutes * secondsInMinute)
 
     def __checkJwsExpiration(self, payload):
         '''
@@ -164,8 +168,8 @@ class Encryption(object):
 
         exp = header['exp']
 
-        if not isinstance(exp, (int, long)):
+        if not isinstance(exp, self.integer_types):
             raise HyperwalletException('Wrong value in [exp] header of JWS signature, must be integer')
 
-        if exp < int(time.time()):
+        if exp < time.time():
             raise HyperwalletException('JWS signature has expired, checked by [exp] JWS header')
