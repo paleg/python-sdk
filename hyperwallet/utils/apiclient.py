@@ -7,6 +7,7 @@ import requests
 from hyperwallet.exceptions import HyperwalletAPIException
 from requests_toolbelt.adapters.ssl import SSLAdapter
 from hyperwallet import __version__
+from hyperwallet.utils.encryption import Encryption
 try:
     from urllib.parse import urljoin
 except ImportError:
@@ -23,20 +24,30 @@ class ApiClient(object):
         The password of this API user. **REQUIRED**
     :param server:
         The base URL of the API. **REQUIRED**
+    :param encryptionData:
+        Array with params for encrypted requests(Fields: clientPrivateKeySetLocation, hyperwalletKeySetLocation).
     '''
 
-    def __init__(self, username, password, server):
+    def __init__(self, username, password, server, encryptionData):
         '''
         Create an instance of the API client.
         This client is used to make the calls to the Hyperwallet API.
         '''
+
+        # Setup encryption for request/responses.
+        self.isEncrypted = False
+        if encryptionData and 'clientPrivateKeySetLocation' in encryptionData and 'hyperwalletKeySetLocation' in encryptionData:
+            self.isEncrypted = True
+            self.encryption = Encryption(encryptionData['clientPrivateKeySetLocation'], encryptionData['hyperwalletKeySetLocation'])
+
+        print self.isEncrypted
 
         # Base headers and the custom User-Agent to identify this client as the
         # Hyperwallet SDK.
         self.baseHeaders = {
             'User-Agent': 'Hyperwallet Python SDK v{}'.format(__version__),
             'Accept': 'application/json',
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/jose+json' if self.isEncrypted else 'application/json'
         }
 
         self.username = username
@@ -84,7 +95,7 @@ class ApiClient(object):
             response = self.session.request(
                 method=method,
                 url=urljoin(self.baseUrl, url),
-                data=data,
+                data=(data if data is None else self.encryption.encrypt(data)) if self.isEncrypted else data,
                 headers=headers,
                 params=params
             )
@@ -106,6 +117,8 @@ class ApiClient(object):
         content = response.content
         if hasattr(content, 'decode'):  # Python 2
             content = content.decode('utf-8')
+
+        content = self.encryption.decrypt(content) if self.isEncrypted else content
 
         try:
             json_body = json.loads(content)
